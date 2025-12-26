@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from cloudinary.models import CloudinaryField
+from django.core.exceptions import ValidationError
 from django.db import models
 
 from main.models import AdminUser
@@ -46,6 +47,22 @@ class Association(models.Model):
     @property
     def logo_url(self):
         return self.logo.url if self.logo else ""
+
+    def save(self, *args, **kwargs):
+        """Override save to ensure only one association exists"""
+        if not self.pk:  # New instance
+            # Check if an association already exists
+            if Association.objects.exists():
+                raise ValidationError(
+                    "Only one association can exist at a time. Please delete the existing association first."
+                )
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def get_single_association(cls):
+        """Get the single association instance"""
+        return cls.objects.first()
+
 
 
 class Session(models.Model):

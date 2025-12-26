@@ -27,7 +27,8 @@ print("DEBUG: Starting to import paystackServices")
 
 from .paystackServices import (
     is_valid_paystack_signature,
-    paystack_init_charge
+    paystack_init_charge,
+    calculate_paystack_charges,
 )
 from .models import Transaction, TransactionReceipt
 from .serializers import TransactionReceiptDetailSerializer, TransactionSerializer
@@ -261,14 +262,19 @@ class InitiatePaymentView(APIView):
                 status=400,
             )
 
-        # Calculate total amount from payment items (no fees)
-        total_amount = sum((item.amount for item in items_qs), Decimal("0.00"))
+        # Calculate total amount from payment items (base amount without fees)
+        base_amount = sum((item.amount for item in items_qs), Decimal("0.00"))
 
-        # Create pending transaction
+        # Calculate Paystack charges
+        charge_breakdown = calculate_paystack_charges(base_amount)
+        total_with_fees = charge_breakdown["total_amount"]
+        transaction_fee = charge_breakdown["transaction_fee"]
+
+        # Create pending transaction with BASE amount (what association receives)
         txn = Transaction.objects.create(
             payer=payer,
             association=association,
-            amount_paid=total_amount,
+            amount_paid=base_amount,  # Store base amount, not total with fees
             is_verified=False,
             session=session,
         )
@@ -284,28 +290,31 @@ class InitiatePaymentView(APIView):
         
         customer = {"name": full_name, "email": email}
 
-        # Frontend redirect with association info
-        frontend = getattr(settings, "FRONTEND_URL", "https://duespay.vercel.app")
-        redirect_url = f"{str(frontend).rstrip('/')}/payment/callback?assoc={association.association_short_name}"
+        # Frontend redirect - Paystack will redirect to /pay after payment
+        frontend = getattr(settings, "FRONTEND_URL", "https://nacos-duespay.vercel.app/")
+        redirect_url = f"{str(frontend).rstrip('/')}/pay"
 
         # Metadata for reconciliation
         metadata = {
             "txn_ref": txn.reference_id,
             "association_id": association.id,
             "payer_id": payer.id,
-            "amount": str(total_amount),
+            "base_amount": str(base_amount),
+            "transaction_fee": str(transaction_fee),
+            "total_amount": str(total_with_fees),
         }
 
         logger.info(
-            f"[INITIATE] ref={txn.reference_id} amount={total_amount} customer={customer} redirect={redirect_url}"
+            f"[INITIATE] ref={txn.reference_id} base={base_amount} fee={transaction_fee} total={total_with_fees}"
         )
         print(
-            f"[{timezone.now().isoformat()}] INITIATE ref={txn.reference_id} amount={total_amount}"
+            f"[{timezone.now().isoformat()}] INITIATE ref={txn.reference_id} base={base_amount} fee={transaction_fee} total={total_with_fees}"
         )
 
         try:
+            # Initialize payment with TOTAL amount (including fees)
             paystack_res = paystack_init_charge(
-                amount=str(total_amount),
+                amount=str(total_with_fees),  # Customer pays this
                 currency="NGN",
                 reference=txn.reference_id,
                 customer=customer,
@@ -336,11 +345,13 @@ class InitiatePaymentView(APIView):
             f"[INITIATE][OK] ref={txn.reference_id} authorization_url={checkout_url}"
         )
         
-        # Clean response without fees
+        # Return breakdown for frontend display
         return Response(
             {
                 "reference_id": txn.reference_id,
-                "amount": str(total_amount),
+                "base_amount": str(base_amount),
+                "transaction_fee": str(transaction_fee),
+                "total_amount": str(total_with_fees),
                 "checkout_url": checkout_url,
             },
             status=201,
@@ -389,17 +400,18 @@ def paystack_webhook(request):
         logger.info(f"[PAYSTACK_WEBHOOK] Already verified ref={txn.reference_id}")
         return HttpResponse(status=200)
 
-    # Get amount from webhook (in kobo, convert to naira)
+    # Get amount from webhook (in kobo, convert to naira) for logging
     amount_kobo = data.get("amount", 0)
-    amount_naira = Decimal(str(amount_kobo)) / 100
+    amount_paid_total = Decimal(str(amount_kobo)) / 100
 
-    # Update transaction
-    txn.amount_paid = amount_naira
+    # Only update verification status, keep the base amount already stored
+    # The transaction was created with base_amount (what association receives)
+    # The webhook amount includes Paystack fees, which we don't want to store
     txn.is_verified = True
-    txn.save(update_fields=["amount_paid", "is_verified"])
+    txn.save(update_fields=["is_verified"])
     
-    logger.info(f"[PAYSTACK_WEBHOOK][VERIFIED] ref={txn.reference_id} amount={txn.amount_paid}")
-    print(f"[{timezone.now().isoformat()}] PAYSTACK VERIFIED ref={txn.reference_id} amount={txn.amount_paid}")
+    logger.info(f"[PAYSTACK_WEBHOOK][VERIFIED] ref={txn.reference_id} base_amount={txn.amount_paid} total_paid={amount_paid_total}")
+    print(f"[{timezone.now().isoformat()}] PAYSTACK VERIFIED ref={txn.reference_id} base_amount={txn.amount_paid} total_paid={amount_paid_total}")
 
     return HttpResponse(status=200)
 

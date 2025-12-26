@@ -90,6 +90,6 @@ PAYSTACK_WEBHOOK_URL = config('PAYSTACK_WEBHOOK_URL', default="https://f43d38558
 
 DEFAULT_FILE_STORAGE = "cloudinary_storage.storage.MediaCloudinaryStorage"
 
-FRONTEND_URL = "https://www.duespay.app"
-BACKEND_URL = "https://duespay.onrender.com"
+FRONTEND_URL = "https://nacos-duespay.vercel.app"
+BACKEND_URL = "https://duespay-backend.onrender.com"
 KORAPAY_WEBHOOK_URL = f"{BACKEND_URL}/api/transactions/webhook/"

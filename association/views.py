@@ -41,6 +41,23 @@ class RetrieveAssociationViewSet(generics.RetrieveAPIView):
     permission_classes = [AllowAny]
 
 
+class GetSingleAssociationView(generics.RetrieveAPIView):
+    """
+    Get the single association without requiring shortname parameter.
+    Since only one association can exist, this returns the first (and only) association.
+    """
+    serializer_class = AssociationSerializer
+    permission_classes = [AllowAny]
+
+    def get_object(self):
+        """Get the single association instance"""
+        association = Association.objects.first()
+        if not association:
+            raise ValidationError("No association found in the system")
+        return association
+
+
+
 class NotificationViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = NotificationSerializer

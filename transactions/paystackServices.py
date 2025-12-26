@@ -59,6 +59,44 @@ def _amount_to_kobo(amount: str | Decimal) -> int:
     return int(d * 100)
 
 
+def calculate_paystack_charges(amount: Decimal | str | float) -> dict:
+    """
+    Calculate Paystack transaction charges based on their pricing:
+    - 1.5% + ₦100
+    - ₦100 fee waived for transactions under ₦2,500
+    - Maximum fee capped at ₦2,000
+    
+    Returns dict with:
+    - base_amount: Original amount
+    - transaction_fee: Paystack fee
+    - total_amount: Amount + fee (what customer pays)
+    """
+    base_amount = Decimal(str(amount)).quantize(Decimal("0.01"))
+    
+    # Calculate 1.5% of amount
+    percentage_fee = (base_amount * Decimal("0.015")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    
+    # Add ₦100 flat fee
+    flat_fee = Decimal("100.00")
+    transaction_fee = percentage_fee + flat_fee
+    
+    # Waive ₦100 for transactions under ₦2,500
+    if base_amount < Decimal("2500.00"):
+        transaction_fee = percentage_fee
+    
+    # Cap fee at ₦2,000
+    if transaction_fee > Decimal("2000.00"):
+        transaction_fee = Decimal("2000.00")
+    
+    total_amount = base_amount + transaction_fee
+    
+    return {
+        "base_amount": base_amount,
+        "transaction_fee": transaction_fee,
+        "total_amount": total_amount,
+    }
+
+
 class PaystackService:
     def __init__(self):
         """Initialize Paystack service with secret key"""
