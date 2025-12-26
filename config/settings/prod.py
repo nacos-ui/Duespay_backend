@@ -12,6 +12,7 @@ DEBUG = False
 INSTALLED_APPS += ["cloudinary", "cloudinary_storage"]
 
 CORS_ALLOWED_ORIGINS = [
+    "https://nacos-duespay.vercel.app",
     "https://duespay.vercel.app",
     "https://duespay.app",
     "https://www.duespay.app",
